@@ -1,0 +1,80 @@
+# PowerMax CSI Installation and Configuration Variables
+KubeletPluginsWatcher_config_file: |
+  KubeletPluginsWatcher: true
+  CSINodeInfo: true
+  CSIDriverRegistry: true
+  BlockVolume: true
+  CSIBlockVolume: true
+feature_gate_config_file: "--feature-gates=KubeletPluginsWatcher=true,CSINodeInfo=true,CSIDriverRegistry=true,BlockVolume=true,CSIBlockVolume=true"
+
+powermax_csi_path: "/root"
+powermax_user: username   # powermax unisphere username
+powermax_pass: password   # powermax unisphere password
+myvalues_yaml: |
+  unisphere: https://172.16.1.11:8443
+  clusterPrefix: k8spmcsi1
+  volumeNamePrefix: k8spmcsi1
+  controllerCount: 1
+  portGroups: PortGroup1, PortGroup2, PortGroup3
+  arrayWhitelist: ""
+  grpcMaxThreads: "4"
+  skipCertificateValidation: "true"
+  enableBlock: "false"
+  transportProtocol: ""
+  powerMaxDebug: "false"
+  storageClass:
+    name: powermax
+    symmetrixID: "000000000000"
+    storageResourcePool: SRP_1
+    serviceLevel: Bronze
+    isDefault: "true"
+    reclaimPolicy: Delete
+  images:
+    driver: dellemc/csi-powermax:v1.1.0.000R
+
+
+####
+# this section has the details on myvalues.yaml file
+
+# "unisphere" defines the Unisphere endpoint, with full URL, typically leveraging HTTPS. This should include the port number as well (the default is 8443)
+# clusterPrefix defines a prefix that is appended onto all resources created in the Array. Should be unique per K8S/CSI deployment
+# volumeNamePrefix defines a prefix that is prepended to volumes.
+# "controllerCount" defines the number of PowerMax controller nodes to deploy to
+# "portGroups" defines the set of existing port groups that the driver will use
+# "arrayWhitelist", if set, defines a set of arrays that will be exposed via the CSI Driver. if set to an empty string, all arrays known to Unisphere will be exposed
+# "grpcMaxThreads" is an integer string which sets the maximum number of current grpc
+# "skipCertificateValidation" determines if the driver is going to skip verification of TLS certificates while connecting to Unisphere RESTAPI interface
+# "enableBlock" enables Block Volume Capability, which is experimental. Do not enable without contacting support.
+# "transportProtocol" can be "FC" or "FIBRE" for fibrechannel, "ISCSI" for iSCSI, or "" for autoselection.
+# "powerMaxDebug" enables low level and http traffic logging between the CSI driver and Unisphere.
+# "storageClass.name" defines the name of the storage class to be defined.
+# "storageClass.symmetrixID" must be set to the default Symmetrix ID to be used
+# "storageClass.storageResourcePool" must be set to the default Storage Resource Pool to be used
+# "storageClass.serviceLevel" must be set to the default Service Level to be used"
+# "storageClass.isDefault" defines whether the primary storage class should be the # default.
+# "storageClass.reclaimPolicy" defines what will happen when a volume is removed from the Kubernetes API. Valid values are "Retain" and "Delete".
+# "images.driver" defines the container images used for the driver container. IT IS RECOMMENDED YOU DO NOT CHANGE THE IMAGES TO BE DOWNLOADED.
+####
+
+# Helm and Tiller Installation and Configuration Variables
+Helm_Path: /usr/local/bin
+tiller_rbac_config: |
+  apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: tiller
+    namespace: kube-system
+  ---
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRoleBinding
+  metadata:
+    name: tiller
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: cluster-admin
+  subjects:
+    - kind: ServiceAccount
+      name: tiller
+      namespace: kube-system
+

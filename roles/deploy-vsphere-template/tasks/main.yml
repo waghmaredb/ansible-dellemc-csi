@@ -1,39 +1,48 @@
 ---
-# Deploy a VM from a template using Ansible 'vmware_guest' module
-- name: Deploy VM from template
+# Deploy a VM from a template using Ansible "vmware_guest" module
+
+
+- name: Create a virtual machine from a template
   vmware_guest:
-    hostname: '{{ deploy_vsphere_host }}'
-    username: '{{ deploy_vsphere_user }}'
-    password: '{{ deploy_vsphere_password }}'
+    hostname: "{{ deploy_vsphere_host }}"
+    username: "{{ deploy_vsphere_user }}"
+    password: "{{ deploy_vsphere_password }}"
     validate_certs: no
-    datacenter: '{{ deploy_vsphere_datacenter }}'
-    cluster: '{{ deploy_vsphere_cluster }}'
-    #resource_pool: '{{ deploy_vsphere_resourcepool }}'
-    folder: '{{ deploy_vsphere_folder }}'
-    name: '{{ inventory_hostname }}'
+    datacenter: "{{ deploy_vsphere_datacenter }}"
+    cluster: "{{ deploy_vsphere_cluster }}"
+    folder: "{{ deploy_vsphere_folder }}"
+    name: "{{ inventory_hostname }}"
     state: poweredon
-    guest_id: '{{ guest_id }}'
-    annotation: "{{ guest_notes }}"
-    disk:
-    - size_gb: 50 
-      type: thin
-      datastore: '{{ deploy_vsphere_datastore }}'
+    template: "{{ guest_template }}"
+#    disk:
+#    - size_gb: 10
+#      type: thin
+#      datastore: g73_datastore
+#    hardware:
+#      memory_mb: 512
+#      num_cpus: 6
+#      num_cpu_cores_per_socket: 3
+#      scsi: paravirtual
+#      memory_reservation_lock: True
+#      mem_limit: 8096
+#      mem_reservation: 4096
+#      cpu_limit: 8096
+#      cpu_reservation: 4096
+#      max_connections: 5
+#      hotadd_cpu: True
+#      hotremove_cpu: True
+#      hotadd_memory: False
+#      version: 12 # Hardware version of virtual machine
+#      boot_firmware: "efi"
+#    cdrom:
+#      type: iso
+#      iso_path: "[datastore1] livecd.iso"
     networks:
-    - name: '{{ guest_network }}'
-      ip: '{{ guest_custom_ip }}'
-      netmask: '{{ guest_netmask }}'
-      gateway: '{{ guest_gateway }}'
-      dns_servers:
-      - '{{ guest_dns_server }}'
-    hardware:
-      memory_mb: '{{ guest_memory }}'
-      num_cpus: '{{ guest_vcpu }}'
-    customization:
-      dns_servers:
-      - '{{ guest_dns_server }}'
-      domain : '{{ guest_domain_name }}'
-      hostname: '{{ inventory_hostname }}'
-    template: '{{ guest_template }}'
-    wait_for_ip_address: no
-    state: poweredon
+    - name: "{{ guest_network }}"
+      ip: "{{ ansible_host }}"
+      netmask: "{{ guest_netmask }}"
+      gateway: "{{ guest_gateway }}"
+#      mac: aa:bb:dd:aa:00:14
+    wait_for_ip_address: yes
   delegate_to: localhost
+  register: deploy

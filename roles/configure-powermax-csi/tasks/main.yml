@@ -1,0 +1,245 @@
+######################## Start of CSI Installation and Configuration Tasks ########################
+
+
+# Enable KubeletPluginsWatcher feature gate in all K8S cluster nodes
+    - name: enable KubeletPluginsWatcher feature gate
+      blockinfile:
+        path: /var/lib/kubelet/config.yaml
+        insertafter: EOF
+        block: "{{ KubeletPluginsWatcher_config_file }}"
+      when: "'prod-k8s-cluster' in group_names"
+
+
+# Set the feature gate settings in the kube-apiserver.yaml on K8S master server 
+    - name: set the feature gate settings of the kube-apiserver.yaml file
+      blockinfile:
+        path: /etc/kubernetes/manifests/kube-apiserver.yaml
+        insertafter: "    - --tls-private-key-file"
+        block: "    - {{ feature_gate_config_file }}"
+      when: "'prod-k8s-master' in group_names"
+
+
+# Set the feature gate settings in the kube-controller-manager.yaml on K8S master server 
+    - name: set the feature gate settings of the kube-controller-manager.yaml file
+      blockinfile:
+        path: /etc/kubernetes/manifests/kube-controller-manager.yaml
+        insertafter: "    - --use-service-account-credentials"
+        block: "    - {{ feature_gate_config_file }}"
+      when: "'prod-k8s-master' in group_names"
+
+# Set the feature gate settings in the kube-scheduler.yaml on K8S master server 
+    - name: set the feature gate settings of the kube-scheduler.yaml file
+      blockinfile:
+        path: /etc/kubernetes/manifests/kube-scheduler.yaml
+        insertafter: "    - --leader-elect"
+        block: "    - {{ feature_gate_config_file }}"
+      when: "'prod-k8s-master' in group_names"
+
+# Edit the KUBELET_KUBECONFIG_ARGS variable in 10-kubeadm.conf file in all K8S cluster nodes 
+    - name: edit the KUBELET_KUBECONFIG_ARGS variable in 10-kubeadm.conf file
+      lineinfile:
+        path: /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
+        regexp: "KUBELET_KUBECONFIG_ARGS="
+        line: "Environment=\"KUBELET_KUBECONFIG_ARGS=--bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf {{ feature_gate_config_file }}\""
+      when: "'prod-k8s-cluster' in group_names"
+
+# Restart kubelet service on all K8S cluster nodes 
+    - name: Restart kubelet service on all nodes
+      systemd:
+        name: kubelet
+        daemon_reload: yes
+        state: restarted
+      when: "'prod-k8s-cluster' in group_names"
+
+# Wait for kubelet services to start on K8S master server
+    - name: wait for kubelet services to start
+      shell: "kubectl -n kube-system get pods"
+      register: wait_kubelet_result
+      until: "'ContainerCreating' not in wait_kubelet_result.stdout"
+      retries: 1800
+      delay: 30
+      changed_when: false
+      when: "'prod-k8s-master' in group_names"
+
+# Configure the mount propagation in Docker on all K8S cluster nodes 
+    - name: Configure the mount propagation in Docker
+      blockinfile:
+        path: /etc/systemd/system/multi-user.target.wants/docker.service
+        insertafter: "[Service]"
+        block: "MountFlags=shared"
+      when: "'prod-k8s-cluster' in group_names"
+
+# Restart Docker service on all K8S cluster nodes
+    - name: Restart Docker services on all nodes
+      systemd:
+        name: docker
+        daemon_reload: yes
+        state: restarted
+      when: "'prod-k8s-cluster' in group_names"
+
+# Wait for kubelet services to start on K8S master server
+    - name: wait for kubelet services to start
+      shell: "kubectl -n kube-system get pods"
+      register: wait_kubelet_result
+      until: "'ContainerCreating' not in wait_kubelet_result.stdout"
+      retries: 1800
+      delay: 30
+      changed_when: false
+      when: "'prod-k8s-master' in group_names"
+
+# Download Helm on K8S master server
+    - name: Download Helm
+      get_url:
+        url:  https://raw.githubusercontent.com/helm/helm/release-2.13/scripts/get
+        dest: "{{ Helm_Path }}/get_helm.sh"
+        mode: u+rwx
+      when: "'prod-k8s-master' in group_names"
+
+# Setup Helm on K8S master server
+    - name: Change directory permissions
+      file:
+        path: "{{ Helm_Path }}"
+        owner: root
+        group: root
+        mode: '700'
+      when: "'prod-k8s-master' in group_names"
+
+    - name: Setup Helm
+      shell: "{{ Helm_Path }}/get_helm.sh"
+      when: "'prod-k8s-master' in group_names"
+
+# Initiate Helm Init on K8S master server
+    - name: Execute Helm Init
+      shell: "{{ Helm_Path }}/helm init"
+      when: "'prod-k8s-master' in group_names"
+
+# Create Tiller service account YAML config file on K8S master server
+    - name: Create Tiller service account YAML config file
+      blockinfile:
+        path: "{{ Helm_Path }}/rbac-config.yaml"
+        block: "{{ tiller_rbac_config }}"
+        create: yes
+      when: "'prod-k8s-master' in group_names"
+
+# Create Tiller service account on K8S master server
+    - name: Add Tiller services account to kube
+      shell: "kubectl get pods -A | grep tiller | grep -i running || kubectl create -f {{ Helm_Path }}/rbac-config.yaml"
+      register: KubetillerService_results
+      changed_when: "'tiller created' in KubetillerService_results.stdout"
+      when: "'prod-k8s-master' in group_names"
+
+# Apply service account to Tiller on K8S master server
+    - name: Apply service account to Tiller
+      shell: "helm init --upgrade --service-account tiller"
+      register: HelmtillerService_results
+      changed_when: "'$HELM_HOME has been configured at' in HelmtillerService_results.stdout"
+      when: "'prod-k8s-master' in group_names"
+
+# Create powermax namespace on K8S master server 
+    - name: Create kube namespace powermax
+      shell: "kubectl get namespace | grep powermax | grep -i active || kubectl create namespace powermax"
+      register: KubePowerMax_NS_results
+      changed_when: "'powermax created' in KubePowerMax_NS_results.stdout"
+      when: "'prod-k8s-master' in group_names"
+
+# Fetch PowerMax SSL certificate and Create kube secret - These steps are needed in case skipCertificateValidation value is set to False.
+
+
+# Download PowerMax CSI from Github into powermax CSI download directory on K8S master server 
+    - name: Create CSI download directory
+      file: 
+        state: directory
+        dest: "{{ powermax_csi_path }}/powermaxCSI"
+      when: "'prod-k8s-master' in group_names"
+
+    - name: Get PowerMax CSI from github
+      git:
+        repo: https://github.com/dell/csi-powermax.git
+        dest: "{{ powermax_csi_path }}/powermaxCSI"
+        force: yes
+      when: "'prod-k8s-master' in group_names"
+
+# On K8S Master Server - Add PowerMax username and password to helm secrets file
+    - name: Add PowerMax username to helm secrets file
+      lineinfile:
+        path: "{{ powermax_csi_path }}/powermaxCSI/helm/secret.yaml"
+        regexp: "  username:"
+        line: "  username: {{ powermax_user }}"
+      when: "'prod-k8s-master' in group_names"
+
+    - name: Add PowerMax password to helm secrets file
+      lineinfile:
+        path: "{{ powermax_csi_path }}/powermaxCSI/helm/secret.yaml"
+        regexp: "  password:"
+        line: "  password: {{ powermax_pass }}"
+      when: "'prod-k8s-master' in group_names"
+
+
+# On K8S Master Server - Add PowerMax credentials to kubernetes using secrets.yaml
+    - name: Add PowerMax credentials from secret.yaml file
+      shell: "kubectl get secrets -A | grep powermax-cred || kubectl create -f {{ powermax_csi_path }}/powermaxCSI/helm/secret.yaml"
+      register: PowerMaxCred_results
+      changed_when: "'powermax-cred created' in PowerMaxCred_results.stdout"
+      when: "'prod-k8s-master' in group_names"
+
+# On K8S Master Server - Create myvalues.yaml file for PowerMax CSI configuration 
+    - name: "create myvalues.yaml for PowerMax k8s configuration"
+      blockinfile:
+        path: "{{ powermax_csi_path }}/powermaxCSI/helm/myvalues.yaml"
+        block: "{{ myvalues_yaml }}"
+        create: yes
+      when: "'prod-k8s-master' in group_names"
+
+# On K8S Master Server - Disable the verify.kubernetes script from install.powermax 
+    - name: "Disable the verify.kubernetes script from install.powermax - part 1"
+      lineinfile:
+        path: "{{ powermax_csi_path }}/powermaxCSI/helm/install.powermax"
+        regexp: "sh ./verify.kubernetes"
+        line: "### Disabled by ansible ### sh ./verify.kubernetes"
+      when: "'prod-k8s-master' in group_names"
+
+    - name: "Disable the verify.kubernetes script from install.powermax - part 1"
+      lineinfile:
+        path: "{{ powermax_csi_path }}/powermaxCSI/helm/install.powermax"
+        regexp: "^rc="
+        line: "rc=1"
+      when: "'prod-k8s-master' in group_names"
+
+# On K8S Master Server - Wait for Tiller pods to come up 
+    - name: Wait for Tiller pods to come up
+      shell: "kubectl -n kube-system get pods"
+      register: wait_tiller_result
+      until: "'ContainerCreating' not in wait_tiller_result.stdout"
+      retries: 1800
+      delay: 30
+      changed_when: false
+      when: "'prod-k8s-master' in group_names"
+
+# On K8S Master Server - Wait for PowerMax namespace to come up 
+    - name: Wait for PowerMax namespace to come up
+      shell: "kubectl -n kube-system get pods"
+      register: wait_api_result
+      until: "'ContainerCreating' not in wait_api_result.stdout"
+      retries: 1800
+      delay: 30
+      changed_when: false
+      when: "'prod-k8s-master' in group_names"
+
+# On K8S Master Server - Run CSI installation install.powermax script
+    - name: run CSI installation script
+      shell: "cd {{ powermax_csi_path }}/powermaxCSI/helm/ && ./install.powermax"
+      register: installation_result
+      when: "'prod-k8s-master' in group_names"
+
+    - debug:
+        var: installation_result
+
+# (Optional) On K8S Master Server - Check the CSI depolyed pods
+#    - name: check the CSI depolyed pods
+#      shell: "cd {{ powermax_csi_path }}/powermaxCSI/helm/ && ./install.powermax"
+#      register: powermax_csi_pods
+#      when: "'prod-k8s-master' in group_names"
+
+#    - debug:
+#        var: powermax_csi_pods
+######################## End of CSI Installation and Configuration Tasks ########################

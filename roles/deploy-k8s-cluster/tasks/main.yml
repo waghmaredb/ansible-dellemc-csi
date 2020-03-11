@@ -1,0 +1,221 @@
+
+######################## Start of K8S Cluster Installation and Configuration Tasks ########################
+
+# Add Global DNS entry in /etc/resolv file in all K8S cluster nodes (skip this task if template already has this added)   
+  - name: add global DNS entry in resolv config file
+    blockinfile:
+      path: /etc/resolv.conf
+      insertafter: EOF
+      block: "nameserver 8.8.8.8"
+    when: "'prod-k8s-cluster' in group_names"
+
+# Stop and Disable Firewall service in all K8S cluster nodes
+  - name: Stop service firewalld, if started
+    service:
+      name: firewalld
+      state: stopped
+      enabled: no
+    when: "'prod-k8s-cluster' in group_names"
+
+# Stop and Disable SELinux on all K8S cluster nodes
+  - name: disable SELinux
+    command: setenforce 0
+    when: "'prod-k8s-cluster' in group_names"
+
+  - name: disable SELinux on reboot
+    selinux:
+      state: disabled
+    when: "'prod-k8s-cluster' in group_names"
+
+# Disable swap on all K8S cluster nodes
+  - name: disable swap
+    command: swapoff -a
+    when: "'prod-k8s-cluster' in group_names"
+
+# Remove swap entry from /etc/fstab from all K8S cluster nodes
+  - name: Remove swapfile from /etc/fstab
+    mount:
+      name: swap
+      fstype: swap
+      state: absent
+    when: "'prod-k8s-cluster' in group_names"
+
+# Set net.bridge.bridge-nf-call-ip6tables value to 1 all K8S cluster nodes
+  - name: ensure net.bridge.bridge-nf-call-ip6tables is set to 1
+    sysctl:
+     name: net.bridge.bridge-nf-call-ip6tables
+     value: '1'
+     state: present
+    when: "'prod-k8s-cluster' in group_names"
+
+# Set net.bridge.bridge-nf-call-iptables value to 1 all K8S cluster nodes
+  - name: ensure net.bridge.bridge-nf-call-iptables is set to 1
+    sysctl:
+     name: net.bridge.bridge-nf-call-iptables
+     value: '1'
+     state: present
+    when: "'prod-k8s-cluster' in group_names"
+
+# Enable EPEL Repo on all K8S cluster nodes
+  - name: install EPEL Repo
+    yum:
+      name: epel-release 
+      state: present
+      update_cache: true
+    when: "'prod-k8s-cluster' in group_names"
+
+# Install and Configure iSCSI on all K8S cluster nodes
+  - name: install iSCSI Utils 
+    yum:
+      name: iscsi-initiator-utils
+      state: present
+      update_cache: true
+    when: "'prod-k8s-cluster' in group_names"
+
+
+  - name: enable node.startup automatic
+    blockinfile:
+      path: /etc/iscsi/iscsid.conf
+      insertafter: "#node.startup = automatic"
+      block: "node.startup = automatic"
+    when: "'prod-k8s-cluster' in group_names"
+
+  - name: Configure the iSCSI service to start automatically
+    shell: "systemctl enable iscsid"
+    when: "'prod-k8s-cluster' in group_names"
+
+  - name: Start iSCSI service 
+    shell: "systemctl start iscsid"
+    when: "'prod-k8s-cluster' in group_names"
+
+  - name: Add storage iSCSI target IP address 
+    shell: "iscsiadm -m discovery -t st -p 172.16.1.11" #replace with iSCSI target IP of storage 
+    ignore_errors: yes
+    when: "'prod-k8s-cluster' in group_names"
+
+# Configure Native Multipath on all K8S cluster nodes
+
+  - name: install Device Multipath 
+    yum:
+      name: device-mapper-multipath
+      state: present
+      update_cache: true
+    when: "'prod-k8s-cluster' in group_names"
+
+  - name: Enable multipath user friendly names 
+    shell: "mpathconf --enable --user_friendly_names y"
+    when: "'prod-k8s-cluster' in group_names"
+
+
+# Install Docker on all K8S cluster nodes using remote repo link (this is to make sure we install recommended Docker version)
+  - name: install Docker from a remote repo
+    yum:
+      name: https://download.docker.com/linux/centos/7/x86_64/stable/Packages/docker-ce-18.06.3.ce-3.el7.x86_64.rpm # this is recommended Docker version for PowerMax CSI
+      state: present
+      update_cache: true
+    when: "'prod-k8s-cluster' in group_names"
+
+# Start Docker service on all K8S cluster nodes
+  - name: start Docker
+    service:
+      name: docker
+      enabled: yes
+      state: started
+    when: "'prod-k8s-cluster' in group_names"
+
+# Add Kubernetes YUM Repo on all K8S cluster nodes
+  - name: add Kubernetes YUM repository
+    yum_repository:
+      name: Kubernetes
+      description: Kubernetes YUM repository
+      baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+      gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+      gpgcheck: yes
+    when: "'prod-k8s-cluster' in group_names"
+
+# Install kubelet and kubeadm version 1.14 on all K8S cluster nodes
+  - name: install kubelet
+    yum:
+      name:
+        - kubelet-1.14.0
+        - kubeadm-1.14.0
+      state: present
+      update_cache: true
+    when: "'prod-k8s-cluster' in group_names"
+
+# Start kubelet service on all K8S cluster nodes
+  - name: start kubelet
+    service:
+      name: kubelet
+      enabled: yes
+      state: started
+    when: "'prod-k8s-cluster' in group_names"
+
+# Install kubectl version 1.14 on K8S master server 
+  - name: install kubectl
+    yum:
+      name: kubectl-1.14.0
+      state: present
+      allow_downgrade: yes
+    when: "'prod-k8s-master' in group_names"
+
+# Download Kubernetes config images 
+  - name: Download kubeadm config images 
+    shell: kubeadm config images pull
+    when: "'prod-k8s-master' in group_names"
+
+# Initialize the Kubernetes cluster 
+  - name: initialize the cluster
+    shell: kubeadm init --pod-network-cidr=10.244.0.0/16 >> cluster_initialized.txt
+    args:
+      chdir: $HOME
+      creates: cluster_initialized.txt
+    when: "'prod-k8s-master' in group_names"
+
+# Create $HOME/.kube directory
+  - name: create .kube directory
+    become: yes
+    file:
+      path: $HOME/.kube
+      state: directory
+      mode: 0755
+    when: "'prod-k8s-master' in group_names"
+
+# Copy admin.conf to $HOME/.kube directory
+  - name: copy admin.conf to user's kube config
+    copy:
+      src: /etc/kubernetes/admin.conf
+      dest: $HOME/.kube/config
+      remote_src: yes
+    when: "'prod-k8s-master' in group_names"
+
+# Install Kubernetes POD network - Flannel in this case
+  - name: install Pod network
+    become: yes
+    shell: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/a70459be0084506e4ec919aa1c114638878db11b/Documentation/kube-flannel.yml >> pod_network_setup.txt
+    args:
+      chdir: $HOME
+      creates: pod_network_setup.txt
+    when: "'prod-k8s-master' in group_names"
+
+# Join Kubernetes workers to cluster
+  - name: Capture join command
+    shell: kubeadm token create --print-join-command
+    register: kubeadm_join_cmd
+    delegate_to: "{{ groups['prod-k8s-master'][0] }}" #use this in case there are multiple masters
+#    when: "'prod-k8s-master' in group_names"
+
+  - set_fact:
+      kubeadm_join: "{{ kubeadm_join_cmd.stdout }}"
+
+  - debug: var=kubeadm_join # this is optional to display join command in ansible console
+
+  - name: Store join command
+    action: copy content="{{ kubeadm_join }}" dest="/etc/kubernetes/kubeadm-join.command"
+
+  - name: Join worker to k8s cluster
+    shell: "{{ kubeadm_join }} --ignore-preflight-errors=swap"
+    when: "'prod-k8s-worker' in group_names"
+    ignore_errors: yes
+
+######################## End of K8S Cluster Installation and Configuration Tasks ########################

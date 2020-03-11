@@ -1,11 +1,13 @@
 [prod-k8s-master]
-prod-k8s-master01 deploy_vsphere_datastore='vsanDatastore' guest_custom_ip='10.67.31.11' guest_notes='Master #1'
-prod-k8s-master02 deploy_vsphere_datastore='vsanDatastore' guest_custom_ip='10.67.31.12' guest_notes='Master #2'
-prod-k8s-master03 deploy_vsphere_datastore='vsanDatastore' guest_custom_ip='10.67.31.13' guest_notes='Master #3'
+prod-k8s-master01 deploy_vsphere_datastore='vsanDatastore' ansible_host='192.168.172.100' guest_notes='Master #1'
 
-[prod-k8s-workers]
-prod-k8s-worker01 deploy_vsphere_datastore='vsanDatastore' guest_custom_ip='10.67.31.21' guest_notes='Worker #01'
-prod-k8s-worker02 deploy_vsphere_datastore='vsanDatastore' guest_custom_ip='10.67.31.22' guest_notes='Worker #02'
-prod-k8s-worker03 deploy_vsphere_datastore='vsanDatastore' guest_custom_ip='10.67.31.23' guest_notes='Worker #03'
-prod-k8s-worker04 deploy_vsphere_datastore='vsanDatastore' guest_custom_ip='10.67.31.24' guest_notes='Worker #04'
-prod-k8s-worker05 deploy_vsphere_datastore='vsanDatastore' guest_custom_ip='10.67.31.25' guest_notes='Worker #05'
+[prod-k8s-worker]
+prod-k8s-worker01 deploy_vsphere_datastore='vsanDatastore' ansible_host='192.168.172.101' guest_notes='Worker #01'
+prod-k8s-worker02 deploy_vsphere_datastore='vsanDatastore' ansible_host='192.168.172.102' guest_notes='Worker #02'
+prod-k8s-worker03 deploy_vsphere_datastore='vsanDatastore' ansible_host='192.168.172.103' guest_notes='Worker #03'
+prod-k8s-worker04 deploy_vsphere_datastore='vsanDatastore' ansible_host='192.168.172.104' guest_notes='Worker #04'
+prod-k8s-worker05 deploy_vsphere_datastore='vsanDatastore' ansible_host='192.168.172.105' guest_notes='Worker #05'
+
+[prod-k8s-cluster:children]
+prod-k8s-master
+prod-k8s-worker

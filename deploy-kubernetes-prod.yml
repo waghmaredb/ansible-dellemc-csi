@@ -1,7 +1,11 @@
 ---
 - hosts: all
   gather_facts: false
+  become: yes
   vars_files:
     - answerfile.yml
+    - pmcsi-answerfile.yml
   roles:
      - deploy-vsphere-template
+     - deploy-k8s-cluster
+     - configure-powermax-csi
